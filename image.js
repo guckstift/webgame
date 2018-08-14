@@ -1,5 +1,7 @@
+import {createTexture} from "./helper.js";
 import screen from "./screen.js";
 import sprite from "./sprite.js";
+import pack from "./packer.js";
 
 let imageCache = {};
 
@@ -23,14 +25,10 @@ class Image
 		
 		this.img.addEventListener("load", () => {
 			let gl = screen.gl;
-			this.tex = gl.createTexture();
-			gl.bindTexture(gl.TEXTURE_2D, this.tex);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+			this.tex = createTexture(screen.gl);
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.img);
 			this.ready = true;
+			pack(this.img);
 		});
 	}
 	

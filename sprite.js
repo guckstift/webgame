@@ -2,11 +2,15 @@ import {createShader} from "./helper.js";
 import screen from "./screen.js";
 import image from "./image.js";
 
+export default function sprite(...args)
+{
+	return new Sprite(...args);
+}
+
 let vertSrc = `
 	uniform vec2 uScreenSize;
 	uniform vec2 uSize;
 	uniform vec2 uPos;
-	uniform vec2 uScale;
 	uniform vec2 uAnchor;
 	uniform float uAngle;
 	
@@ -30,7 +34,6 @@ let vertSrc = `
 		
 		pos -= uAnchor;
 		pos *= uSize;
-		pos *= uScale;
 		pos = rotate(pos, uAngle);
 		pos += uPos;
 		pos /= uScreenSize;
@@ -48,7 +51,6 @@ let fragSrc = `
 	
 	uniform sampler2D uTex;
 	uniform vec2 uSize;
-	uniform vec2 uScale;
 	uniform bool uEllipse;
 	uniform vec4 uTint;
 	
@@ -61,7 +63,7 @@ let fragSrc = `
 		
 		if(uEllipse) {
 			float dist = distance(vTexCoord, vec2(0.5));
-			vec2 scaleVec = uSize * uScale;
+			vec2 scaleVec = uSize;
 			float scale = (scaleVec.x + scaleVec.y) / 2.0;
 		
 			gl_FragColor.a *= clamp(0.5 + (1.0 - dist * 2.0) * scale / 2.0, 0.0, 1.0);
@@ -141,12 +143,11 @@ class Sprite
 			gl.enableVertexAttribArray(prog.aCoord);
 			gl.vertexAttribPointer(prog.aCoord, 2, gl.FLOAT, false, 0, 0);
 			gl.uniform2f(prog.uScreenSize, innerWidth, innerHeight);
-			gl.uniform2f(prog.uSize, this.img.width, this.img.height);
+			gl.uniform2f(prog.uSize, this.img.width*this.scale[0], this.img.height*this.scale[1]);
 			gl.activeTexture(gl.TEXTURE0);
 			gl.bindTexture(gl.TEXTURE_2D, this.img.tex);
 			gl.uniform1i(prog.uTex, 0);
 			gl.uniform2fv(prog.uPos, this.pos);
-			gl.uniform2fv(prog.uScale, this.scale);
 			gl.uniform2fv(prog.uAnchor, this.anchor);
 			gl.uniform1f(prog.uAngle, this.angle);
 			gl.uniform1i(prog.uEllipse, this.ellipse);
@@ -154,9 +155,4 @@ class Sprite
 			gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 		}
 	}
-}
-
-export default function sprite(...args)
-{
-	return new Sprite(...args);
 }
