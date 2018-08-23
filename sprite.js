@@ -1,96 +1,71 @@
-import {createShader} from "./helper.js";
+import {Group} from "./group.js";
+import PointProxy from "./pointproxy.js";
 import screen from "./screen.js";
 import image from "./image.js";
+
+const defPoint = [0, 0];
+const defScale = [1, 1];
 
 export default function sprite(...args)
 {
 	return new Sprite(...args);
 }
 
-let vertSrc = `
-	uniform vec2 uScreenSize;
-	uniform vec2 uSize;
-	uniform vec2 uPos;
-	uniform vec2 uAnchor;
-	uniform float uAngle;
-	
-	attribute vec2 aCoord;
-	
-	varying vec2 vTexCoord;
-
-	vec2 rotate(vec2 v, float a)
+export class Sprite extends Group
+{
+	constructor(img, pos)
 	{
-		a *= 3.14159265359 / 180.0;
+		super();
 		
-		return vec2(
-			v.x * cos(a) - v.y * sin(a),
-			v.y * cos(a) + v.x * sin(a)
-		);
+		if(typeof img === "string") {
+			img = image(img);
+		}
+		
+		this._renderer = null;
+		this._zindex = 0;
+		this._pureAnchor = new Float32Array(defPoint);
+		this._anchor = new Float32Array(defPoint);
+		this._anchorRev = 0;
+		this._anchorProxy = new PointProxy(this._pureAnchor, () => this._updateAnchor());
+		this._pureScale = new Float32Array(defScale);
+		this._pureScaleProxy = new PointProxy(this._pureScale, () => this._updateScale());
+		this.img = img;
+		
+		if(pos) this.pos = pos;
 	}
 	
-	void main()
+	_updateAnchor()
 	{
-		vec2 pos = aCoord;
-		
-		pos -= uAnchor;
-		pos *= uSize;
-		pos = rotate(pos, uAngle);
-		pos += uPos;
-		pos /= uScreenSize;
-		pos *= vec2(2, -2);
-		pos += vec2(-1, 1);
-		
-		gl_Position = vec4(pos, 0, 1);
-		
-		vTexCoord = aCoord;
+		let a = this._pureAnchor;
+		this._anchor[0] = (a[0] * this.img.width - this.img.bbox.x) / this.img.bbox.w;
+		this._anchor[1] = (a[1] * this.img.height - this.img.bbox.y) / this.img.bbox.h;
+		this._anchorRev ++;
 	}
-`;
-
-let fragSrc = `
-	precision highp float;
 	
-	uniform sampler2D uTex;
-	uniform vec2 uSize;
-	uniform bool uEllipse;
-	uniform vec4 uTint;
-	
-	varying vec2 vTexCoord;
-
-	void main()
+	_updateScale()
 	{
-		gl_FragColor = texture2D(uTex, vTexCoord);
-		gl_FragColor *= uTint;
+		this._scale[0] = this._pureScale[0] * this._img.bbox.w;
+		this._scale[1] = this._pureScale[1] * this._img.bbox.h;
+		this._scaleRev ++;
+	}
+	
+	get zindex()
+	{
+		return this._zindex;
+	}
+	
+	set zindex(i)
+	{
+		this._zindex = i;
 		
-		if(uEllipse) {
-			float dist = distance(vTexCoord, vec2(0.5));
-			vec2 scaleVec = uSize;
-			float scale = (scaleVec.x + scaleVec.y) / 2.0;
-		
-			gl_FragColor.a *= clamp(0.5 + (1.0 - dist * 2.0) * scale / 2.0, 0.0, 1.0);
+		if(this._renderer) {
+			this._renderer.reorder(this);
 		}
 	}
-`;
-
-let gl = screen.gl;
-let prog = createShader(gl, vertSrc, fragSrc);
-let buf = gl.createBuffer();
-
-gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0,0, 0,1, 1,0, 1,1]), gl.STATIC_DRAW);
-
-class Sprite
-{
-	constructor(img, pos, anchor)
+	
+	get img()
 	{
-		this.img = img;
-		this.pos = pos || [0, 0];
-		this.anchor = anchor || [0, 0];
-		this.scale = [1, 1];
-		this.angle = 0;
-		this.speed = [0, 0];
-		this.zindex = 0;
-		this.ellipse = false;
-		this.tint =  [1, 1, 1, 1];
+		return this._img;
 	}
 	
 	set img(img)
@@ -100,22 +75,65 @@ class Sprite
 		}
 		
 		this._img = img;
+		
+		this._img.ready.then(() => {
+			this._updateAnchor();
+			this._updateScale();
+		});
 	}
 	
-	get img()
+	get anchor()
 	{
-		return this._img;
+		return this._anchorProxy;
 	}
 	
-	set zindex(i)
+	set anchor(p)
 	{
-		this._zindex = i;
-		screen.reorder(this);
+		this._pureAnchor.set(p);
+		this._updateAnchor();
 	}
 	
-	get zindex()
+	get scale()
 	{
-		return this._zindex;
+		return this._pureScaleProxy;
+	}
+	
+	set scale(p)
+	{
+		this._pureScale.set(p);
+		this._updateScale();
+	}
+	
+	get rev()
+	{
+		return this._posRev + this._anchorRev + this._scaleRev + this._angleRev;
+	}
+	
+	get matrix()
+	{
+		let m = this._matrix;
+		let rev = this.rev;
+		
+		if(rev > this._matrixRev) {
+			let anchor = this._anchor;
+			let scalex = this._scale[0];
+			let scaley = this._scale[1];
+			let angle = this._angle;
+			let pos = this._pos;
+		    let sinr = Math.sin(angle);
+		    let cosr = Math.cos(angle);
+		    let c = scalex * anchor[0];
+		    let f = scaley * anchor[1];
+		    m[0] = scalex * cosr;
+		    m[1] = -scaley * sinr;
+		    m[2] = -c * cosr + f * sinr + pos[0];
+		    m[3] = scalex * sinr;
+		    m[4] = scaley * cosr;
+		    m[5] = -c * sinr - f * cosr + pos[1];
+			this._matrixRev = rev;
+		}
+		
+		return m;
 	}
 	
 	show()
@@ -128,31 +146,5 @@ class Sprite
 	{
 		screen.hide(this);
 		return this;
-	}
-	
-	draw(delta)
-	{
-		if(this.img.ready) {
-			let gl = screen.gl;
-		
-			this.pos[0] += this.speed[0] * delta / 1000.0;
-			this.pos[1] += this.speed[1] * delta / 1000.0;
-		
-			gl.useProgram(prog);
-			gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-			gl.enableVertexAttribArray(prog.aCoord);
-			gl.vertexAttribPointer(prog.aCoord, 2, gl.FLOAT, false, 0, 0);
-			gl.uniform2f(prog.uScreenSize, innerWidth, innerHeight);
-			gl.uniform2f(prog.uSize, this.img.width*this.scale[0], this.img.height*this.scale[1]);
-			gl.activeTexture(gl.TEXTURE0);
-			gl.bindTexture(gl.TEXTURE_2D, this.img.tex);
-			gl.uniform1i(prog.uTex, 0);
-			gl.uniform2fv(prog.uPos, this.pos);
-			gl.uniform2fv(prog.uAnchor, this.anchor);
-			gl.uniform1f(prog.uAngle, this.angle);
-			gl.uniform1i(prog.uEllipse, this.ellipse);
-			gl.uniform4fv(prog.uTint, this.tint);
-			gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-		}
 	}
 }

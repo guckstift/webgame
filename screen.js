@@ -1,62 +1,38 @@
+import {createGl} from "./helper.js";
+import {screenGroup} from "./group.js";
+import Renderer from "./renderer.js";
 import event from "./event.js";
 
-class Screen
+export class Screen
 {
 	constructor()
 	{
-		this.drawlist = [];
-		this.last = 0;
-		this.canvas = document.createElement("canvas");
+		this.gl = createGl({alpha: false, antialias: false});
+		this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+		this.gl.clearColor(0, 0, 0, 0);
+		this.gl.enable(this.gl.BLEND);
 		
-		this.gl = this.canvas.getContext("webgl", {
-			alpha: false,
-			antialias: false,
-			depth: true,
-		});
+		this.canvas = this.gl.canvas;
+		this.canvas.style.position = "fixed";
+		this.canvas.style.left = "0";
+		this.canvas.style.top = "0";
+		this.canvas.style.width = "100%";
+		this.canvas.style.height = "100%";
 		
-		let gl = this.gl;
-
-		gl.enable(gl.BLEND);
-		gl.clearColor(0, 0, 0, 0);
-		gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
-		addEventListener("resize", () => this.onResize());
+		this.renderer = new Renderer(this);
+		
+		this.onResize = this.onResize.bind(this);
+		this.onFrame = this.onFrame.bind(this);
 		this.onResize();
 		
-		addEventListener("load", () =>
-		{
-			document.documentElement.style.height = "100%";
-			document.documentElement.style.overflow = "hidden";
-			document.body.style.height = "100%";
-			document.body.style.margin = "0";
-			document.body.appendChild(this.canvas);
-			requestAnimationFrame(now => this.onFrame(now));
-		});
-	}
-
-	onResize()
-	{
-		this.canvas.width = innerWidth;
-		this.canvas.height = innerHeight;
-		this.gl.viewport(0, 0, innerWidth, innerHeight);
-	}
-
-	onFrame(now)
-	{
-		this.last = this.last || now;
-		let delta = now - this.last;
-		this.last = now;
-		event.triggerFrame(delta);
-	
-		this.gl.clear(this.gl.COLOR_BUFFER_BIT);
-		this.drawlist.forEach(item => item.draw(delta));
-	
-		requestAnimationFrame(now => this.onFrame(now));
+		window.addEventListener("resize", this.onResize);
+		window.document.body.appendChild(this.canvas);
+		window.requestAnimationFrame(this.onFrame);
 	}
 	
 	get size()
 	{
-		return [innerWidth, innerHeight];
+		return [this.canvas.width, this.canvas.height];
 	}
 	
 	set bgcolor(rgb)
@@ -64,50 +40,37 @@ class Screen
 		this.gl.clearColor(...rgb, 1);
 	}
 	
-	show(drawable)
+	show(sprite)
 	{
-		if(!this.drawlist.includes(drawable)) {
-			this.drawlist.push(drawable);
-			this.reorder(drawable);
-		}
+		this.renderer.show(sprite);
 	}
 	
-	hide(drawable)
+	hide(sprite)
 	{
-		if(this.drawlist.includes(drawable)) {
-			this.drawlist.splice(this.drawlist.indexOf(drawable), 1);
-		}
+		this.renderer.hide(sprite);
 	}
 	
-	reorder(drawable)
+	onResize()
 	{
-		let index = this.drawlist.indexOf(drawable);
+		this.canvas.width = window.innerWidth;
+		this.canvas.height = window.innerHeight;
+		this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+		screenGroup.scale.x = 2 / this.canvas.width;
+		screenGroup.scale.y = -2 / this.canvas.height;
+	}
+	
+	onFrame(now)
+	{
+		window.requestAnimationFrame(this.onFrame);
 		
-		while(index > 0) {
-			let prev = this.drawlist[index - 1];
-			
-			if(prev.zindex > drawable.zindex) {
-				this.drawlist[index - 1] = drawable;
-				this.drawlist[index] = prev;
-				index --;
-			}
-			else {
-				break;
-			}
-		}
+		this.last = this.last || now;
+		this.delta = now - this.last;
+		this.last = now;
 		
-		while(index < this.drawlist.length - 1) {
-			let next = this.drawlist[index + 1];
-			
-			if(next.zindex < drawable.zindex) {
-				this.drawlist[index + 1] = drawable;
-				this.drawlist[index] = next;
-				index ++;
-			}
-			else {
-				break;
-			}
-		}
+		event.triggerFrame(this.delta);
+		
+		this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+		this.renderer.render();
 	}
 }
 
